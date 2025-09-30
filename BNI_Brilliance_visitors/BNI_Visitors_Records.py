@@ -32,8 +32,6 @@ from BNI_Visitors_data_extraction import extract_data_from_image_v2
 SUPABASE_URL = "https://dvzpeyupbyqkehksvmpc.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR2enBleXVwYnlxa2Voa3N2bXBjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU3NzQwNzMsImV4cCI6MjA3MTM1MDA3M30.cKw87wSBjpqBMp42cFh5oOqRLfwOpzYysEasJ2T8llc"
 
-#supabase_url = st.secrets["supabase"]["url"]
-#supabase_key = st.secrets["supabase"]["key"]
 
 # Error handling utilities
 class AppError(Exception):
