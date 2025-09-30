@@ -23,7 +23,7 @@ os.environ["FLAGS_use_mkldnn"] = "0"
 # Global OCR instance - will be initialized lazily
 ocr_instance = None
 
-#config
+# ========= CONFIG =========
 COLUMNS = ['Name', 'Company Name', 'Category', 'Invited by', 'Fees', 'Payment Mode', 'Date','Note']
 
 
@@ -230,10 +230,7 @@ def extract_data_from_image_v2(image_path):
                 'height': height
             })
 
-
-    print(f"DEBUG: Parsed {len(ocr_items)} OCR items"
     #print(f"DEBUG: Parsed {len(ocr_items)} OCR items")
-
 
     # Sort by Y coordinate
     ocr_items.sort(key=lambda x: x['y'])
@@ -333,18 +330,12 @@ def extract_data_from_image_v2(image_path):
     for item in ocr_items:
         if 'name' in item['text'].lower() and len(item['text']) < 15:
             table_start_y = item['y'] + 15
-
-            print(f"DEBUG: Table starts at y={table_start_y}")
-	    #print(f"DEBUG: Table starts at y={table_start_y}")
-
+            #print(f"DEBUG: Table starts at y={table_start_y}")
             break
 
     # Filter to table area
     table_items = [item for item in ocr_items if item['y'] >= table_start_y]
-
-    print(f"DEBUG: {len(table_items)} items in table area")
     #print(f"DEBUG: {len(table_items)} items in table area")
-
 
     # Get all unique person names
     all_names = []
@@ -357,9 +348,6 @@ def extract_data_from_image_v2(image_path):
     # Second pass: be more lenient for bottom area (handwritten)
     max_y = max(item['y'] for item in table_items) if table_items else 0
     bottom_threshold = max_y - 150
-
-
-    print(f"DEBUG: Looking for handwritten names in bottom area (y >= {bottom_threshold})")
 
     #print(f"DEBUG: Looking for handwritten names in bottom area (y >= {bottom_threshold})")
 
@@ -377,11 +365,7 @@ def extract_data_from_image_v2(image_path):
                 # If not already in all_names
                 if text.lower() not in [n['text'].lower() for n in all_names]:
                     all_names.append(item)
-
-                    print(f"DEBUG: Added handwritten name: '{text}' at y={item['y']:.0f}")
-
                     #print(f"DEBUG: Added handwritten name: '{text}' at y={item['y']:.0f}")
-
 
     # Remove duplicates
     def name_similarity(a, b):
@@ -403,11 +387,7 @@ def extract_data_from_image_v2(image_path):
 
     all_names = sorted(unique_names, key=lambda x: x['y'])
 
-
-    print(f"DEBUG: Found {len(all_names)} unique person names:")
-
     #print(f"DEBUG: Found {len(all_names)} unique person names:")
-
     for i, name_item in enumerate(all_names):
         print(f"  {i + 1:2d}: '{name_item['text']}' at y={name_item['y']:.0f}")
 
@@ -463,17 +443,10 @@ def extract_data_from_image_v2(image_path):
 
         records.append(record)
 
-
-    print(f"DEBUG: Created {len(records)} individual records")
-
-    # Show final records
-    print("\nDEBUG: Final extracted records:")
-
     #print(f"DEBUG: Created {len(records)} individual records")
 
     # Show final records
     #print("\nDEBUG: Final extracted records:")
-
     for i, record in enumerate(records):
         print(f"  {i + 1:2d}: '{record['name'][:20]:20s}' | Company: '{record['company_name'][:15]:15s}' | "
               f"Cat: '{record['category'][:10]:10s}' | Fees: '{record['fees']:8s}' | "
@@ -501,11 +474,7 @@ def extract_data_from_image_v2(image_path):
     # Remove any completely empty rows
     df = df[df.apply(lambda x: any(x.astype(str).str.strip() != ''), axis=1)]
 
-
-    print(f"DEBUG: Final DataFrame shape: {df.shape}")
-
     #print(f"DEBUG: Final DataFrame shape: {df.shape}")
-
 
     return df
 
@@ -513,16 +482,6 @@ def extract_data_from_image_v2(image_path):
 def test_complete_extraction(image_path):
     """Test complete extraction for 8 columns"""
     try:
-
-        print("=" * 80)
-        print("8-COLUMN EXTRACTION - Name, Company, Category, Invited by, Fees, Payment, Date, Note")
-        print("=" * 80)
-
-        result_df = extract_data_from_image_v2(image_path)
-
-        print(f"\nFinal Results - {len(result_df)} records:")
-        print(result_df.to_string(index=False, max_colwidth=20))
-
         #print("=" * 80)
         #print("8-COLUMN EXTRACTION - Name, Company, Category, Invited by, Fees, Payment, Date, Note")
         #print("=" * 80)
@@ -531,7 +490,6 @@ def test_complete_extraction(image_path):
 
         #print(f"\nFinal Results - {len(result_df)} records:")
         #print(result_df.to_string(index=False, max_colwidth=20))
-s
 
         return result_df
 
