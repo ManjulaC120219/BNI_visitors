@@ -1,12 +1,14 @@
+@"
 streamlit
-opencv-python-headless
-paddlepaddle
-paddleocr
+opencv-python-headless==4.10.0.84
+paddlepaddle==3.0.0
+paddleocr==2.8.1
 pandas
-numpy
+numpy<2.0.0
 Pillow
-protobuf
+protobuf>=3.20.0
 shapely
 scikit-learn
 supabase
 setuptools
+"@ | Out-File -FilePath requirements.txt -Encoding UTF8
