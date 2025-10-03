@@ -7,6 +7,14 @@ Realtor project/
 12.py
 *.json
 
+.streamlit/secrets.toml
+*.env
+.env
+__pycache__/
+*.pyc
+.streamlit/
+
+
 # Python
 .venv/
 venv/
