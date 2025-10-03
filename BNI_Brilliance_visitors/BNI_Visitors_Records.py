@@ -29,8 +29,6 @@ from BNI_Visitors_data_extraction import extract_data_from_image_v2
 # Rest of your code...
 
 # Supabase configuration
-#SUPABASE_URL = "https://dvzpeyupbyqkehksvmpc.supabase.co"
-#SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR2enBleXVwYnlxa2Voa3N2bXBjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU3NzQwNzMsImV4cCI6MjA3MTM1MDA3M30.cKw87wSBjpqBMp42cFh5oOqRLfwOpzYysEasJ2T8llc"
 supabase_url = st.secrets["SUPABASE_URL"]
 supabase_key = st.secrets["SUPABASE_KEY"]
 
@@ -121,7 +119,7 @@ def validate_input(field_name: str, value: Any, required: bool = False, min_leng
 @st.cache_resource
 def init_supabase():
     try:
-        #client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
         client = create_client(supabase_url, supabase_key)
         # Test connection
         client.table('bni_visitors_details').select('id').limit(1).execute()
