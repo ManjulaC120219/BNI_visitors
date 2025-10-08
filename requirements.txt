@@ -1,9 +1,9 @@
 streamlit
 opencv-python-headless
-paddlepaddle==3.0.0
-paddleocr==2.8.1
+paddlepaddle
+paddleocr
 pandas
-numpy==1.26.4
+numpy
 Pillow
 protobuf
 shapely
