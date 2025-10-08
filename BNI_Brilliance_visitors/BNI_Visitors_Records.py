@@ -26,8 +26,6 @@ logger = logging.getLogger(__name__)
 # Import modules that might contain Streamlit commands AFTER set_page_config
 from BNI_Visitors_data_extraction import extract_data_from_image_v2
 
-# Rest of your code...
-
 # Supabase configuration
 supabase_url = st.secrets["SUPABASE_URL"]
 supabase_key = st.secrets["SUPABASE_KEY"]
@@ -219,6 +217,9 @@ def save_data_to_supabase(dataframe: pd.DataFrame):
     errors = []
 
     try:
+        # Normalize column names (handle both "Name" and "name")
+        dataframe.columns = dataframe.columns.str.lower().str.strip()
+
         for _, row in dataframe.iterrows():
             # Clean and convert data types
             def safe_convert_to_int(value):
@@ -226,7 +227,7 @@ def save_data_to_supabase(dataframe: pd.DataFrame):
                 if pd.isna(value) or value == "" or value is None:
                     return None
                 try:
-                    return int(str(value))  # Handle float strings like "123.0"
+                    return int(float(str(value)))  # Handle float strings like "123.0"
                 except (ValueError, TypeError):
                     return None
 
@@ -234,30 +235,24 @@ def save_data_to_supabase(dataframe: pd.DataFrame):
                 """Convert value to string, return empty string if None/NaN"""
                 if pd.isna(value) or value is None:
                     return None
-                return str(value)
-
-            from datetime import datetime
-            import pandas as pd
+                return str(value).strip()
 
             def safe_convert_to_date_string(value, date_format=None):
-                """
-                Convert a value to a date string in YYYY-MM-DD format for Supabase.
-
-                - If `date_format` is provided, it will use that format to parse the date.
-                - If the value is empty, None, or not a valid date, return None.
-                - Returns a string in YYYY-MM-DD format for JSON serialization.
-                """
+                """Convert a value to a date string in YYYY-MM-DD format"""
                 if pd.isna(value) or value in ("", None):
                     return None
 
-                # If it's already a datetime object or pandas Timestamp, convert to string
+                # If it's already a datetime object or pandas Timestamp
                 if isinstance(value, (datetime, pd.Timestamp)):
                     return value.strftime('%Y-%m-%d')
 
-                # If it's already a string in the right format, return as-is
+                # If it's a date object
+                if isinstance(value, date):
+                    return value.strftime('%Y-%m-%d')
+
+                # If it's already a string in the right format
                 if isinstance(value, str) and len(value) == 10 and '-' in value:
                     try:
-                        # Validate it's a proper date string
                         datetime.strptime(value, '%Y-%m-%d')
                         return value
                     except ValueError:
@@ -275,25 +270,30 @@ def save_data_to_supabase(dataframe: pd.DataFrame):
                 except (ValueError, TypeError):
                     return None
 
+            # Use normalized lowercase column names
             member_data = {
-                "name": safe_convert_to_string(row["Name"]),
-                "company_name": safe_convert_to_string(row["company name"]),
-                "category": safe_convert_to_string(row["category"]),
-                "invited_by": safe_convert_to_string(row["invited by"]),
-                "fees": safe_convert_to_int(row["fees"]),
-                "payment_mode": safe_convert_to_string(row["payment mode"]),
-                "visit_date": safe_convert_to_date_string(row["visit_date"]),
-                "note": safe_convert_to_string(row["note"]),
-                "created_at": datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),  # Convert to ISO string
+                "name": safe_convert_to_string(row.get("name", "")),
+                "company_name": safe_convert_to_string(row.get("company name", "")),
+                "invited_by": safe_convert_to_string(row.get("invited by", "")),
+                "fees": safe_convert_to_int(row.get("fees", 0)),
+                "payment_mode": safe_convert_to_string(row.get("payment mode", "")),
+                "visit_date": safe_convert_to_date_string(row.get("date", None)),
+                "note": safe_convert_to_string(row.get("note", "")),
+                "created_at": datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             }
 
+            # Skip rows with no name
+            if not member_data["name"]:
+                continue
+
             # Check if record already exists
-            existing = supabase.table("bni_visitors_details").select("*").eq("name", member_data["name"]).execute()
+            existing = supabase.table("bni_visitors_details").select("*").eq("name", member_data["name"]).eq(
+                "visit_date", member_data["visit_date"]).execute()
 
             if existing.data:
                 # Update existing record
-                response = supabase.table("bni_visitors_details").update(member_data).eq("name",
-                                                                                         member_data["name"]).execute()
+                response = supabase.table("bni_visitors_details").update(member_data).eq("id", existing.data[0][
+                    'id']).execute()
             else:
                 # Insert new record
                 response = supabase.table("bni_visitors_details").insert(member_data).execute()
@@ -303,21 +303,20 @@ def save_data_to_supabase(dataframe: pd.DataFrame):
                 success_count += 1
             else:
                 error_count += 1
-                errors.append(f"No data returned for {row['Name']}")
+                errors.append(f"No data returned for {member_data['name']}")
 
         # Show summary message after all operations
         if success_count > 0:
-            st.success(f"Successfully saved {success_count} member(s) to database!")
+            st.success(f"✅ Successfully saved {success_count} visitor(s) to database!")
 
         if error_count > 0:
-            st.error(f"Failed to save {error_count} member(s). Errors: {'; '.join(errors)}")
+            st.error(f"❌ Failed to save {error_count} visitor(s). Errors: {'; '.join(errors)}")
 
     except Exception as e:
-        st.error(f"Database operation failed: {str(e)}")
-        print(f"Debug - Full error: {e}")  # For debugging
+        st.error(f"❌ Database operation failed: {str(e)}")
+        print(f"Debug - Full error: {e}")
         import traceback
-        print(f"Debug - Traceback: {traceback.format_exc()}")  # For debugging
-
+        print(f"Debug - Traceback: {traceback.format_exc()}")
 
 def debug_supabase_connection():
     """Debug function to test Supabase connection"""
@@ -376,7 +375,7 @@ def save_data_simple_test(dataframe: pd.DataFrame):
         test_data = {
             "name": str(first_row.get("Name", "")).strip(),
             "company_name": str(first_row.get("Company Name", "")).strip(),
-            "category": str(first_row.get("Category", "")).strip(),
+
             "invited_by": str(first_row.get("Invited by", "")).strip(),
             "fees": safe_int_convert(first_row.get("Fees", "")),  # int8
             "payment_mode": str(first_row.get("Payment Mode", "")).strip(),
@@ -504,7 +503,7 @@ def get_all_members() -> pd.DataFrame:
         raise DatabaseError(f"Could not retrieve members: {str(e)}")
 
 @handle_error
-def add_member(name: str,  company_name: str, category: str, invited_by: str, fees: int, payment_mode: str, visit_date: datetime, note: str) -> bool:
+def add_member(name: str,  company_name: str, invited_by: str, fees: int, payment_mode: str, visit_date: datetime, note: str) -> bool:
     """Add new member with comprehensive validation and error handling"""
     try:
         # Input validation
@@ -517,7 +516,7 @@ def add_member(name: str,  company_name: str, category: str, invited_by: str, fe
         member_data = {
             'name': name.strip(),
             'company_name': company_name.strip() if company_name else '',
-            'category': category.strip(),
+
             'invited_by': invited_by.strip(),
             'fees': fees,
             'payment_mode':payment_mode.strip(),
@@ -525,6 +524,7 @@ def add_member(name: str,  company_name: str, category: str, invited_by: str, fe
             'note': note.strip(),
             'created_at': datetime.now().isoformat()
         }
+
 
         # Check for duplicate names (optional warning)
         existing_response = supabase.table('bni_visitors_details').select('name').eq('name', name.strip()).execute()
@@ -548,7 +548,7 @@ def add_member(name: str,  company_name: str, category: str, invited_by: str, fe
 
 
 @handle_error
-def update_member(member_id: int, name : str, company_name: str, category: str, invited_by: str, fees: int, payment_mode: str, visit_date: datetime, note:str) -> bool:
+def update_member(member_id: int, name : str, company_name: str,  invited_by: str, fees: int, payment_mode: str, visit_date: datetime, note:str) -> bool:
     """Update member with validation and error handling"""
     try:
         # Input validation
@@ -566,7 +566,7 @@ def update_member(member_id: int, name : str, company_name: str, category: str, 
         member_data = {
             'name': name.strip(),
             'company_name': company_name.strip() if company_name else '',
-            'category': category.strip(),
+
             'invited_by': invited_by.strip(),
             'fees': fees,
             'payment_mode': payment_mode.strip(),
@@ -800,15 +800,13 @@ def display_payment_summary(selected_thursday, weekly_amount):
 
         for individual in individuals:
             # Handle different possible name fields
-            name = individual.get("name") or individual.get("rchar") or individual.get("id", "Unknown")
-            company_name = individual.get("company_name") or individual.get("rchar") or individual.get("id", "Unknown")
-            category = individual.get("category") or individual.get("rchar") or individual.get("id", "Unknown")
-            invited_by = individual.get("invited_by") or individual.get("rchar") or individual.get("id", "Unknown")
+            name = individual.get("name") if individual.get("name") else " "
+            company_name = individual.get("company_name") if individual.get("company_name") else " "
+            invited_by = individual.get("invited_by") if individual.get("invited_by") else " "
             fees = individual.get("fees", 0)
-            payment_mode = individual.get("payment_mode") or individual.get("rchar") or individual.get("id", "Unknown")
-            visit_date = individual.get("visit_date") or individual.get("rchar") or individual.get("id", "Unknown")
-            note = individual.get("note") or individual.get("rchar") or individual.get("id", "Unknown")
-
+            payment_mode = individual.get("payment_mode") if individual.get("payment_mode") else " "
+            visit_date = individual.get("visit_date") if individual.get("visit_date") else " "
+            note = individual.get("note") if individual.get("note") else " "
 
 
             # Handle different fee structures
@@ -842,29 +840,35 @@ def display_payment_summary(selected_thursday, weekly_amount):
             summary_data.append({
                 "Name": name,
                 'Company_Name':company_name,
-                'Category': category,
+
                 'Invited_By': invited_by,
-                "Paid": f"Rs. {total_paid:,.2f}",
+                "Fees": total_paid,
                 'Payment Mode':payment_mode,
-                'Visit Date': visit_date,
+                'Date': visit_date,
                 "Note": note,
-                "Status": "✅ Paid" if total_paid >= 1400 else "❌ Not Paid"
+                #"Status": "✅ Paid" if total_paid >= 1400 else "❌ Not Paid"
             })
 
             # Display summary metrics
         st.markdown("---")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3,col4 = st.columns(4)
 
         with col1:
-            st.metric("👥 Total Attendees", attendees_count)
+            st.metric("Total Attendees", attendees_count)
 
         with col2:
-            cash_total = payment_mode_totals.get("Cash", 0)
-            st.metric("💵 Cash Collected", f"Rs. {cash_total:,.2f}")
+            normalized_totals = {k.lower(): v for k, v in payment_mode_totals.items()}
+            cash_total = normalized_totals.get("cash", 0)
+            st.write("💵 Cash Collected", f"Rs. {cash_total:,.2f}")
 
         with col3:
-            upi_total = payment_mode_totals.get("Upi", 0)
-            st.metric("📲 Amount through UPI", f"Rs. {upi_total:,.2f}")
+            normalized_totals = {k.lower(): v for k, v in payment_mode_totals.items()}
+            # Safely get 'cash' regardless of original casing
+            online_total = normalized_totals.get("online", 0)
+            st.write("💵 Online Collected", f"Rs. {online_total:,.2f}")
+
+        with col4:
+            st.write("💵 total amount", f"Rs. {total_collected:,.2f}")
 
         # Display the data table
         if summary_data:
@@ -1091,7 +1095,7 @@ def show_dashboard():
 
     # Initialize session state variables
     if "show_calendar" not in st.session_state:
-        st.session_state.show_calendar = True  # Show calendar by default
+        st.session_state.show_calendar = True
 
     if "show_add_form" not in st.session_state:
         st.session_state.show_add_form = False
@@ -1124,7 +1128,6 @@ def show_dashboard():
         st.session_state.selected_thursday = None
 
     # Always show calendar widget at the top
-    #st.header("📅 Date Selection")
     selected_thursday = show_calendar_widget()
 
     # Show action buttons only if a date is selected
@@ -1175,33 +1178,181 @@ def show_dashboard():
         if isinstance(extracted_data, list):
             extracted_data = pd.DataFrame(extracted_data)
 
-        # Display extracted data as a dataframe and allow editing
-        edited_data = extracted_data.copy()
+        def parse_date_for_display(input_date):
+            """Parse date for display in data editor"""
+            if isinstance(input_date, date):
+                return input_date
+            elif isinstance(input_date, pd.Timestamp):
+                return input_date.date()
+            elif isinstance(input_date, str):
+                if not input_date or input_date.strip() == '' or input_date == "Not Available":
+                    # Use selected Thursday as default
+                    return selected_thursday if selected_thursday else date.today()
 
-        for idx, row in edited_data.iterrows():
-            st.subheader(f"Editing Row {idx + 1}")
-            edited_data.at[idx, "Name"] = st.text_input(f"Name", value=row["Name"], key=f"name_{idx}")
-            edited_data.at[idx, "Company Name"] = st.text_input(f"Company Name", value=row["Company Name"],
-                                                                key=f"company_name_{idx}")
-            edited_data.at[idx, "Category"] = st.text_input(f"Category", value=row["Category"], key=f"category_{idx}")
-            edited_data.at[idx, "Invited by"] = st.text_input(f"Invited by", value=row["Invited by"],
-                                                              key=f"invited_by_{idx}")
-            edited_data.at[idx, "Fees"] = st.text_input(f"Fees", value=str(row["Fees"]), key=f"fees_{idx}")
-            edited_data.at[idx, "Payment Mode"] = st.text_input(f"Payment Mode", value=row["Payment Mode"],
-                                                                key=f"payment_mode_{idx}")
+                # Try various date formats
+                formats = [
+                    "%d/%m/%Y",
+                    "%Y-%m-%d",
+                    "%d-%b-%Y",
+                    "%d-%b",
+                ]
 
-            # Use the selected Thursday as the default date
-            default_date = selected_thursday if selected_thursday else row["Date"]
-            edited_data.at[idx, "Date"] = st.date_input(f"Date", value=default_date, key=f"visit_date_{idx}")
+                for fmt in formats:
+                    try:
+                        parsed = datetime.strptime(input_date, fmt)
+                        if fmt == "%d-%b":  # Add current year
+                            parsed = parsed.replace(year=datetime.now().year)
+                        return parsed.date()
+                    except ValueError:
+                        continue
 
-            edited_data.at[idx, "note"] = st.text_input(f"Note", value=row.get("Note", ""), key=f"note_{idx}")
+                # Try cleaning up malformed dates
+                try:
+                    cleaned = input_date.replace('+', '').replace('-', ' ').strip()
+                    parts = cleaned.split()
+                    if len(parts) >= 2:
+                        day = parts[0]
+                        month = parts[1]
+                        year = parts[2] if len(parts) > 2 else str(datetime.now().year)
 
-        # Display the editable table as a dataframe
-        st.dataframe(edited_data)
+                        if len(year) == 3:
+                            year = year + '5'
+                        elif len(year) == 2:
+                            year = '20' + year
 
-        # Save the edited data back to Supabase
-        if st.button("Save to Database", key="save_to_db_btn"):
-            save_data_to_supabase(edited_data)
+                        date_str = f"{day}-{month}-{year}"
+                        return datetime.strptime(date_str, "%d-%b-%Y").date()
+                except:
+                    pass
+
+                # Return default if unparseable
+                return selected_thursday if selected_thursday else date.today()
+            else:
+                return selected_thursday if selected_thursday else date.today()
+
+        # Prepare data for editing
+        edit_df = extracted_data.copy()
+
+        # Parse dates in the Date column
+        if 'Date' in edit_df.columns:
+            edit_df['Date'] = edit_df['Date'].apply(parse_date_for_display)
+
+        # Ensure all required columns exist
+        required_columns = ['Name', 'Company Name', 'Invited by', 'Fees', 'Payment Mode', 'Date']
+        for col in required_columns:
+            if col not in edit_df.columns:
+                edit_df[col] = ''
+
+        # Convert Fees column to numeric, replacing empty strings with 0
+        if 'Fees' in edit_df.columns:
+            edit_df['Fees'] = pd.to_numeric(edit_df['Fees'], errors='coerce').fillna(0).astype(int)
+
+        # Add row numbers for reference
+        edit_df.insert(0, 'Row', range(1, len(edit_df) + 1))
+
+        # Configure column types for data editor
+        column_config = {
+            'Row': st.column_config.NumberColumn(
+                'Row #',
+                disabled=True,
+                width='small'
+            ),
+            'Name': st.column_config.TextColumn(
+                'Name',
+                required=True,
+                width='medium'
+            ),
+            'Company Name': st.column_config.TextColumn(
+                'Company Name',
+                width='medium'
+            ),
+            'Invited by': st.column_config.TextColumn(
+                'Invited by',
+                width='medium'
+            ),
+            'Fees': st.column_config.NumberColumn(
+                'Fees',
+                format='%d',
+                width='small'
+            ),
+            'Payment Mode': st.column_config.SelectboxColumn(
+                'Payment Mode',
+                options=['Cash', 'Online'],
+                #options = ['Cash', 'Online', 'UPI', 'Card', 'Cheque'],
+                width='small'
+            ),
+            'Date': st.column_config.DateColumn(
+                'Date',
+                format='DD/MM/YYYY',
+                width='medium'
+            ),
+            'Note': st.column_config.TextColumn(
+                'Note',
+                width='large'
+            )
+        }
+
+
+        edited_df = st.data_editor(
+            edit_df,
+            column_config=column_config,
+            num_rows="dynamic",  # Allow adding/deleting rows
+            use_container_width=True,
+            hide_index=True,
+            key="extracted_data_editor"
+        )
+
+        # Show summary
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Visitors", len(edited_df))
+        with col2:
+            total_fees = edited_df['Fees'].apply(
+                lambda x: float(x) if str(x).replace('.', '', 1).isdigit() else 0).sum()
+            st.metric("Total Fees", f"₹{total_fees:,.0f}")
+        with col3:
+            valid_names = edited_df['Name'].apply(lambda x: bool(str(x).strip())).sum()
+            st.metric("Valid Entries", valid_names)
+
+        # Action buttons
+        st.divider()
+        col1, col2, col3,col4 = st.columns([1, 1, 1,1])
+
+        with col1:
+            if st.button("💾 Save to Database", type="primary", key="save_to_db_btn"):
+                # Remove the Row column before saving
+                save_df = edited_df.drop('Row', axis=1)
+
+                # Validate data
+                empty_names = save_df[save_df['Name'].str.strip() == ''].index
+                if len(empty_names) > 0:
+                    st.error(f"⚠️ Please fill in names for rows: {', '.join(map(str, empty_names + 1))}")
+                else:
+                    with st.spinner("Saving to database..."):
+                        save_data_to_supabase(save_df)
+
+        with col2:
+            if st.button("🔄 Reset Changes", key="reset_changes_btn"):
+                st.session_state.extracted_data = None
+                st.session_state.data_processed = False
+                st.rerun()
+
+        with col3:
+            # Download as CSV
+            csv = edited_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv,
+                file_name=f"visitors_{selected_thursday.strftime('%Y%m%d') if selected_thursday else 'exported'}.csv",
+                mime="text/csv",
+                key="download_csv_btn"
+            )
+        with col4:
+            if st.button("🏠 Back to Dashboard", key="back_to_dashboard_extracted"):
+                st.session_state.extracted_data = None
+                st.session_state.data_processed = False
+                st.session_state.image_to_process = None
+                st.rerun()
 
     # Handle delete confirmation with error handling
     if st.session_state.delete_confirmation:
@@ -1234,7 +1385,7 @@ def show_dashboard():
 
     # Main content area based on current state
     try:
-        if selected_thursday:  # Only show content if a date is selected
+        if selected_thursday:
             st.divider()
 
             if st.session_state.get("show_add_form"):
@@ -1247,7 +1398,7 @@ def show_dashboard():
 
             elif st.session_state.get("show_payment_summary"):
                 st.header(f"📊 Payment Summary for {selected_thursday.strftime('%B %d, %Y')}")
-                weekly_amount = 500  # Fixed weekly amount (make configurable if needed)
+                weekly_amount = 500
                 display_payment_summary(selected_thursday, weekly_amount)
 
             elif st.session_state.get("show_visitors_list"):
@@ -1255,17 +1406,12 @@ def show_dashboard():
                 show_members_list_for_date(selected_thursday)
 
             else:
-                # Default view when no specific action is selected
                 st.info("📅 Select an action above to view payment summary or visitors list.")
-
-        #else:
-            #st.info("📅 Please select a Thursday to view and manage visitor data.")
 
     except Exception as e:
         st.error("❌ An error occurred in the main application")
         show_error_details(str(e))
 
-        # Recovery options
         col1, col2 = st.columns(2)
 
         with col1:
@@ -1281,46 +1427,292 @@ def show_dashboard():
                 st.rerun()
 
 
-def show_members_list_for_date(selected_date):
-    """Display members list for a specific date"""
-    # Fix the DataFrame ambiguity issue by using proper checks
+def update_visitor_record(record_id, data_dict):
+    """Update a visitor record in Supabase"""
+    try:
+        # Prepare data for update - remove None values and empty strings
+        update_data = {}
+        for key, value in data_dict.items():
+            if key not in ['id', 'created_at']:  # Don't update ID and created_at
+                # Handle different data types
+                if pd.isna(value) or value == '' or value == ' ':
+                    update_data[key] = None
+                elif isinstance(value, (pd.Timestamp, date)):
+                    update_data[key] = value.strftime('%Y-%m-%d')
+                else:
+                    update_data[key] = value
 
-    if 'individuals_data' in st.session_state:
-        members_data = st.session_state.individuals_data
+        # Update record in Supabase
+        response = supabase.table('bni_visitors_details').update(update_data).eq('id', record_id).execute()
 
-
-        # Check if members_data exists and is not empty
-        if members_data is not None and len(members_data) > 0:
-            st.success(f"✅ Found {len(members_data)} visitors for this date")
-
-            # Handle different data types
-            if hasattr(members_data, 'iterrows'):
-                # If it's a pandas DataFrame
-                for idx, (_, member) in enumerate(members_data.iterrows()):
-                    display_member_row(member, idx)
-            elif isinstance(members_data, (list, tuple)):
-                # If it's a list or tuple
-                for idx, member in enumerate(members_data):
-                    # Check if member is a dictionary
-                    if isinstance(member, dict):
-                        display_member_row(member, idx)
-                    else:
-                        st.error(f"❌ Invalid data format for member {idx + 1}: {type(member)}")
-                        st.write(f"Data: {member}")
-            else:
-                st.error(f"❌ Unsupported data format: {type(members_data)}")
-                st.write(f"Data content: {members_data}")
+        if response.data:
+            return True
         else:
-            st.info(f"📭 No visitors found for {selected_date.strftime('%B %d, %Y')}")
-    else:
+            return False
+
+    except Exception as e:
+        st.error(f"Error updating record {record_id}: {str(e)}")
+        return False
+
+
+def show_members_list_for_date(selected_date):
+    """Display members list for a specific date in editable table format"""
+
+    if 'individuals_data' not in st.session_state or st.session_state.individuals_data is None:
         st.info(f"📭 No data loaded for {selected_date.strftime('%B %d, %Y')}")
-
-        # Optionally, you can add a button to load data
         if st.button("🔄 Load Data", key="load_data_btn"):
-            # Add your data loading logic here
-            # load_members_data_for_date(selected_date)
             st.rerun()
+        return
 
+    members_data = st.session_state.individuals_data
+
+    # Convert to DataFrame if it's a list
+    if isinstance(members_data, list):
+        if not members_data:
+            st.info(f"📭 No visitors found for {selected_date.strftime('%B %d, %Y')}")
+            return
+        df = pd.DataFrame(members_data)
+    elif isinstance(members_data, pd.DataFrame):
+        if members_data.empty:
+            st.info(f"📭 No visitors found for {selected_date.strftime('%B %d, %Y')}")
+            return
+        df = members_data.copy()
+    else:
+        st.error(f"❌ Unsupported data format: {type(members_data)}")
+        return
+
+    st.success(f"✅ Found {len(df)} visitors for this date")
+
+    # Store the original IDs for updating later
+    original_ids = df['id'].tolist() if 'id' in df.columns else []
+
+    # Define display columns (exclude id and created_at)
+    display_columns = ['name', 'company_name', 'invited_by', 'fees', 'payment_mode', 'visit_date', 'note']
+
+    # Create display DataFrame with only the columns we want to show
+    display_df = df.copy()
+
+    # Keep only display columns that exist
+    existing_display_cols = [col for col in display_columns if col in display_df.columns]
+    display_df = display_df[existing_display_cols]
+
+    # Rename columns for display
+    column_mapping = {
+        'name': 'Name',
+        'company_name': 'Company Name',
+        'invited_by': 'Invited By',
+        'fees': 'Fees',
+        'payment_mode': 'Payment Mode',
+        'visit_date': 'Date',
+        'note': 'Note'
+    }
+
+    display_df = display_df.rename(columns=column_mapping)
+
+    # Fill empty values
+    for col in display_df.columns:
+        if col != 'Fees':
+            display_df[col] = display_df[col].fillna('').replace('', ' ')
+
+    # Handle Fees column
+    if 'Fees' in display_df.columns:
+        display_df['Fees'] = pd.to_numeric(display_df['Fees'], errors='coerce').fillna(0).astype(int)
+
+    # Parse dates
+    if 'Date' in display_df.columns:
+        display_df['Date'] = pd.to_datetime(display_df['Date'], errors='coerce').dt.date
+
+    # Add row selection column at the beginning
+    display_df.insert(0, 'Select', False)
+
+    # Configure column settings
+    column_config = {
+        'Select': st.column_config.CheckboxColumn(
+            'Select',
+            help='Select rows to delete',
+            width='small'
+        ),
+        'Name': st.column_config.TextColumn(
+            'Name',
+            required=True,
+            width='medium'
+        ),
+        'Company Name': st.column_config.TextColumn(
+            'Company Name',
+            width='medium'
+        ),
+        'Invited By': st.column_config.TextColumn(
+            'Invited By',
+            width='medium'
+        ),
+        'Fees': st.column_config.NumberColumn(
+            'Fees',
+            format='₹%d',
+            width='small'
+        ),
+        'Payment Mode': st.column_config.SelectboxColumn(
+            'Payment Mode',
+            options=['Cash', 'Online'],
+            width='small'
+        ),
+        'Date': st.column_config.DateColumn(
+            'Date',
+            format='DD/MM/YYYY',
+            width='medium'
+        ),
+        'Note': st.column_config.TextColumn(
+            'Note',
+            width='large'
+        )
+    }
+    edited_df = st.data_editor(
+        display_df,
+        column_config=column_config,
+        num_rows="fixed",
+        use_container_width=True,
+        hide_index=True,
+        key=f"visitors_editor_{selected_date.strftime('%Y%m%d')}"
+    )
+
+    # Show summary statistics
+    st.divider()
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("👥 Total Visitors", len(edited_df))
+
+    with col2:
+        if 'Fees' in edited_df.columns and 'Payment Mode' in edited_df.columns:
+            cash_total = edited_df[edited_df['Payment Mode'].str.lower() == 'cash']['Fees'].sum()
+            st.metric("💵 Cash Collected", f"₹{cash_total:,.0f}")
+
+    with col3:
+        if 'Fees' in edited_df.columns and 'Payment Mode' in edited_df.columns:
+            online_total = edited_df[edited_df['Payment Mode'].str.lower() == 'online']['Fees'].sum()
+            st.metric("💳 Online Collected", f"₹{online_total:,.0f}")
+
+    with col4:
+        if 'Fees' in edited_df.columns:
+            total_fees = edited_df['Fees'].sum()
+            st.metric("💰 Total Collected", f"₹{total_fees:,.0f}")
+
+    # Action buttons
+    st.divider()
+    col1, col2, col3 = st.columns([1, 1, 2])
+
+    with col1:
+        if st.button("💾 Save All Changes", type="primary", key="save_all_changes_btn"):
+            # Validate data
+            empty_names = edited_df[edited_df['Name'].str.strip() == ''].index
+            if len(empty_names) > 0:
+                st.error(f"⚠️ Please fill in names for all rows")
+            else:
+                with st.spinner("Updating all records..."):
+                    success_count = 0
+                    error_count = 0
+
+                    # Remove Select column for saving
+                    save_df = edited_df.drop('Select', axis=1)
+
+                    # Convert back to original column names
+                    reverse_mapping = {v: k for k, v in column_mapping.items()}
+                    save_df = save_df.rename(columns=reverse_mapping)
+
+                    # Update each record
+                    for idx, (_, row) in enumerate(save_df.iterrows()):
+                        if idx < len(original_ids):
+                            record_id = original_ids[idx]
+                            record_data = row.to_dict()
+
+                            if update_visitor_record(record_id, record_data):
+                                success_count += 1
+                            else:
+                                error_count += 1
+
+                    if success_count > 0:
+                        st.success(f"✅ Successfully updated {success_count} record(s)!")
+                    if error_count > 0:
+                        st.error(f"❌ Failed to update {error_count} record(s)")
+
+                    if success_count > 0:
+                        time.sleep(1)
+                        st.rerun()
+
+    with col2:
+        # Check if any rows are selected for deletion
+        selected_rows = edited_df[edited_df['Select'] == True]
+        if len(selected_rows) > 0:
+            if st.button(f"🗑️ Delete Selected ({len(selected_rows)})", key="delete_selected_btn"):
+                # Get IDs of selected rows
+                selected_indices = selected_rows.index.tolist()
+                ids_to_delete = [original_ids[idx] for idx in selected_indices if idx < len(original_ids)]
+
+                # Get names for confirmation
+                names_to_delete = selected_rows['Name'].tolist()
+
+                st.session_state.bulk_delete_confirmation = {
+                    'ids': ids_to_delete,
+                    'names': names_to_delete,
+                    'count': len(ids_to_delete)
+                }
+                st.rerun()
+
+    with col3:
+        # Download as CSV
+        download_df = edited_df.drop('Select', axis=1)
+        csv = download_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download CSV",
+            data=csv,
+            file_name=f"visitors_{selected_date.strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+            key="download_visitors_csv"
+        )
+
+    # Handle bulk delete confirmation
+    if st.session_state.get('bulk_delete_confirmation'):
+        delete_info = st.session_state.bulk_delete_confirmation
+
+        st.markdown(f"""
+        <div style="background-color: #fff3cd; padding: 20px; border-radius: 10px; border-left: 5px solid #ffc107; margin: 20px 0;">
+            <h4 style="color: #856404; margin: 0 0 10px 0;">⚠️ Confirm Deletion</h4>
+            <p style="color: #856404; margin: 0;">Are you sure you want to delete <strong>{delete_info['count']}</strong> visitor(s)?</p>
+            <p style="color: #856404; margin: 10px 0 0 0;"><strong>Visitors to be deleted:</strong></p>
+            <ul style="color: #856404;">
+                {''.join([f'<li>{name}</li>' for name in delete_info['names'][:5]])}
+                
+           # <p style="color: #856404; margin: 5px 0 0 0;"><em>This action cannot be undone.</em></p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col1, col2, col3 = st.columns([1, 1, 2])
+
+        with col1:
+            if st.button("❌ Yes, Delete All", type="primary", key="confirm_bulk_delete_final"):
+                with st.spinner(f"Deleting {delete_info['count']} visitor(s)..."):
+                    success_count = 0
+                    error_count = 0
+
+                    for record_id in delete_info['ids']:
+                        result = delete_member(record_id)
+                        if result:
+                            success_count += 1
+                        else:
+                            error_count += 1
+
+                    if success_count > 0:
+                        st.success(f"✅ Successfully deleted {success_count} visitor(s)!")
+                    if error_count > 0:
+                        st.error(f"❌ Failed to delete {error_count} visitor(s)")
+
+                    st.session_state.bulk_delete_confirmation = None
+                    time.sleep(1)
+                    st.rerun()
+
+        with col2:
+            if st.button("↩️ Cancel", key="cancel_bulk_delete_final"):
+                st.session_state.bulk_delete_confirmation = None
+                st.rerun()
 
 def display_member_row(member, idx):
     """Helper function to display a single member row"""
@@ -1332,11 +1724,11 @@ def display_member_row(member, idx):
                 # Handle both dictionary and Series objects
                 name = get_member_value(member, 'name', 'Name')
                 company = get_member_value(member, 'company_name', 'Company Name')
-                category = get_member_value(member, 'category', 'Category')
+
                 note = get_member_value(member, 'note', 'Note')
                 st.write(f"**{name}**")
                 st.write(f"Company: {company}")
-                st.write(f"Category: {category}")
+
                 st.write(f"Note: {note}")
 
             with col2:
@@ -1407,6 +1799,7 @@ def show_dashboard_with_sidebar():
 def show_add_member_form(selected_date=None):
     """Show add member form with pre-filled date"""
 
+
     with st.form("add_member_form"):
         col1, col2, col3 = st.columns(3)
 
@@ -1415,6 +1808,8 @@ def show_add_member_form(selected_date=None):
             invited_by = st.text_input("Invited by*")
             # Use selected date as default
             visit_date = st.date_input("Visit Date", value=selected_date if selected_date else date.today())
+            # Use in Streamlit safely
+            #visit_date = st.date_input("Visit Date", value=safe_date)
 
         with col2:
             company_name = st.text_input("Company Name*")
@@ -1422,14 +1817,14 @@ def show_add_member_form(selected_date=None):
             note = st.text_area("Note (Optional)")
 
         with col3:
-            category = st.text_input("Category*")
+
             # Payment mode dropdown
-            payment_mode = st.selectbox("Payment Mode", ["Cash", "UPI"], index=0)
+            payment_mode = st.selectbox("Payment Mode", ["Cash", "Online"], index=0)
 
         submitted = st.form_submit_button("💾 Save Visitor", use_container_width=True)
 
         if submitted:
-            if name and company_name and category and invited_by:
+            if name and company_name and invited_by:
                 # Convert date to string format for JSON serialization
                 visit_date_str = visit_date.strftime('%Y-%m-%d') if visit_date else None
 
@@ -1437,7 +1832,7 @@ def show_add_member_form(selected_date=None):
                 visitor_data = pd.DataFrame([{
                     'Name': name,
                     'company name': company_name,
-                    'category': category,
+
                     'invited by': invited_by,
                     'fees': fees,
                     'payment mode': payment_mode,
@@ -1536,10 +1931,10 @@ def show_edit_member_form():
             note = st.text_input("Note", value=safe_get(member_data, 'note', ''))
 
         with col3:
-            category = st.text_input("Category", value=safe_get(member_data, 'category', ''))
+
 
             # Payment mode dropdown with proper index handling
-            payment_options = ["Cash", "UPI"]
+            payment_options = ["Cash", "Online"]
             current_payment_mode = safe_get(member_data, 'payment_mode', '').strip()
 
             # Find the index of current payment mode, default to 0 if not found
@@ -1564,7 +1959,7 @@ def show_edit_member_form():
             clean_data = {
                 'name': name.strip() if name else '',
                 'company_name': company_name.strip() if company_name else '',
-                'category': category.strip() if category else '',
+
                 'invited_by': invited_by.strip() if invited_by else '',
                 'fees': fees,
                 'payment_mode': payment_mode,  # This is already clean from selectbox
@@ -1584,7 +1979,7 @@ def show_edit_member_form():
                         member_id,
                         clean_data['name'],
                         clean_data['company_name'],
-                        clean_data['category'],
+
                         clean_data['invited_by'],
                         clean_data['fees'],
                         clean_data['payment_mode'],
@@ -1741,8 +2136,7 @@ def show_members_list():
                 st.markdown("**Name**")
             with col2:
                 st.markdown("**Company Name**")
-            with col3:
-                st.markdown("**Category**")
+
             with col4:
                 st.markdown("**Invited by**")
             with col5:
@@ -1769,32 +2163,31 @@ def show_members_list():
                         with col2:
                             st.write(row.get('company_name', 'Not specified'))
 
-                        with col3:
-                            st.write(row.get('category', 'Not specified'))
 
-                        with col4:
+
+                        with col3:
                             st.write(row.get('invited_by', 'Not specified'))
 
-                        with col5:
+                        with col4:
                             fees_val = row.get('fees', 0)
                             try:
                                 st.write(f"₹{(fees_val):,.2f}")
                             except (ValueError, TypeError):
                                 st.write("₹0.00")
 
-                        with col6:
+                        with col5:
                             #mode = row.get('payment_mode', 'Unknown')
                             st.write(row.get('payment_mode', 'Unknown'))
 
-                        with col7:
+                        with col6:
                             #mode = row.get('payment_mode', 'Unknown')
                             st.write(row.get('visit_date', 'Unknown'))
 
-                        with col8:
+                        with col7:
                             #mode = row.get('payment_mode', 'Unknown')
                             st.write(row.get('note', 'Unknown'))
 
-                        with col9:
+                        with col8:
                             col_edit, col_delete = st.columns(2)
 
                             with col_edit:
