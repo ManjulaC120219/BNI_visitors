@@ -8,5 +8,5 @@ Pillow
 protobuf
 shapely
 scikit-learn
-supabase
+supabase-py
 setuptools
