@@ -1,3 +1,4 @@
+
 import pandas as pd
 import numpy as np
 import os, re
@@ -521,7 +522,6 @@ def is_signature_or_check(text):
     if len(text) <= 2 and not text.isalnum():
         return True
     return False
-
 
 def merge_similar_text(items, similarity_threshold=0.75, x_tolerance=40):
     """Merge OCR items that are likely the same text"""

@@ -877,7 +877,7 @@ def display_payment_summary(selected_thursday, weekly_amount):
         else:
             st.warning("No payment data to display.")
 
-        
+
 
     except Exception as e:
         st.error(f"❌ Error displaying payment summary: {str(e)}")
