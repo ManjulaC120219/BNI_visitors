@@ -1,0 +1,75 @@
+# Exclude everything except BNI files
+Anova_Streamlit_Code/
+BNI_Brilliance1/
+BNI_Brilliance_attendance/
+BNI_Brilliance_personal_data/
+Realtor project/
+12.py
+*.json
+
+.streamlit/secrets.toml
+*.env
+.env
+__pycache__/
+*.pyc
+.streamlit/
+
+
+# Python
+.venv/
+venv/
+venv310/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Cache and temp files
+cache/
+*.log
+temp_image.png
+.cache/
+
+# Models
+path_to_better_model/
+*.pth
+*.pt
+*.h5
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Credentials - NEVER commit these!
+**/Creadential_file.json
+**/*credentials*.json
+**/*credential*.json
+*.json
+
+
+# Environment variables
+.env
+.envrc
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints
