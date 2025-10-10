@@ -1100,9 +1100,9 @@ def show_all_members_list():
         display_df['Fees'] = pd.to_numeric(display_df['Fees'], errors='coerce').fillna(0).astype(int)
 
     # Add Date column for display
-    if 'created_at' in df.columns:
-        dates = pd.to_datetime(df['created_at'], errors='coerce').dt.strftime('%Y-%m-%d')
-        display_df.insert(0, 'Date', dates)
+    #if 'created_at' in df.columns:
+    #    dates = pd.to_datetime(df['created_at'], errors='coerce').dt.strftime('%Y-%m-%d')
+     #   display_df.insert(0, 'Date', dates)
 
     # Add row selection column at the beginning
     display_df.insert(0, 'Select', False)
