@@ -1021,6 +1021,291 @@ def debug_sidebar():
         st.write("If you see this, sidebar is functional")
 
 
+def load_all_visitors_data():
+    """Load all visitors from database regardless of date"""
+    try:
+        response = supabase.table("bni_visitors_details").select("*").order(
+            "created_at", desc=True
+        ).execute()
+
+        if response.data:
+            st.session_state.individuals_data = response.data
+        else:
+            st.session_state.individuals_data = []
+
+    except Exception as e:
+        st.error(f"Error fetching all visitors: {e}")
+        st.session_state.individuals_data = []
+
+
+def show_all_members_list():
+    """Display ALL members from database (no date filter)"""
+
+    load_all_visitors_data()
+    members_data = st.session_state.individuals_data
+
+    if members_data is None or (isinstance(members_data, list) and not members_data):
+        st.info("📭 No visitors found in database")
+        return
+
+    # Convert to DataFrame if it's a list
+    if isinstance(members_data, list):
+        if not members_data:
+            st.info("📭 No visitors found in database")
+            return
+        df = pd.DataFrame(members_data)
+    elif isinstance(members_data, pd.DataFrame):
+        if members_data.empty:
+            st.info("📭 No visitors found in database")
+            return
+        df = members_data.copy()
+    else:
+        st.error(f"❌ Unsupported data format: {type(members_data)}")
+        return
+
+    st.success(f"✅ Found {len(df)} total visitors in database")
+
+    # Store the original IDs for updating later
+    original_ids = df['id'].tolist() if 'id' in df.columns else []
+
+    # Define display columns (exclude id and created_at from editing)
+    display_columns = ['name', 'company_name', 'invited_by', 'fees', 'payment_mode', 'note']
+
+    # Create display DataFrame with only the columns we want to show
+    display_df = df.copy()
+
+    # Keep only display columns that exist
+    existing_display_cols = [col for col in display_columns if col in display_df.columns]
+    display_df = display_df[existing_display_cols]
+
+    # Rename columns for display
+    column_mapping = {
+        'name': 'Name',
+        'company_name': 'Company Name',
+        'invited_by': 'Invited By',
+        'fees': 'Fees',
+        'payment_mode': 'Payment Mode',
+        'note': 'Note'
+    }
+
+    display_df = display_df.rename(columns=column_mapping)
+
+    # Fill empty values
+    for col in display_df.columns:
+        if col != 'Fees':
+            display_df[col] = display_df[col].fillna('').replace('', ' ')
+
+    # Handle Fees column
+    if 'Fees' in display_df.columns:
+        display_df['Fees'] = pd.to_numeric(display_df['Fees'], errors='coerce').fillna(0).astype(int)
+
+    # Add Date column for display
+    if 'created_at' in df.columns:
+        dates = pd.to_datetime(df['created_at'], errors='coerce').dt.strftime('%Y-%m-%d')
+        display_df.insert(0, 'Date', dates)
+
+    # Add row selection column at the beginning
+    display_df.insert(0, 'Select', False)
+
+    # Configure column settings
+    column_config = {
+        'Select': st.column_config.CheckboxColumn(
+            'Select',
+            help='Select rows to delete',
+            width='small'
+        ),
+
+        'Name': st.column_config.TextColumn(
+            'Name',
+            required=True,
+            width='medium'
+        ),
+        'Company Name': st.column_config.TextColumn(
+            'Company Name',
+            width='medium'
+        ),
+        'Invited By': st.column_config.TextColumn(
+            'Invited By',
+            width='medium'
+        ),
+        'Fees': st.column_config.NumberColumn(
+            'Fees',
+            format='₹%d',
+            width='small'
+        ),
+        'Payment Mode': st.column_config.SelectboxColumn(
+            'Payment Mode',
+            options=['Cash', 'Online'],
+            width='small'
+        ),
+        'Note': st.column_config.TextColumn(
+            'Note',
+            width='large'
+        )
+    }
+
+    # Display editable dataframe
+    edited_df = st.data_editor(
+        display_df,
+        column_config=column_config,
+        num_rows="fixed",
+        use_container_width=True,
+        hide_index=True,
+        key="all_visitors_editor"
+    )
+
+    # Show summary statistics
+    #st.divider()
+    #col1, col2, col3, col4 = st.columns(4)
+
+    #with col1:
+        #st.metric("👥 Total Visitors", len(edited_df))
+
+    #with col2:
+        #if 'Fees' in edited_df.columns and 'Payment Mode' in edited_df.columns:
+            #cash_total = edited_df[edited_df['Payment Mode'].str.lower() == 'cash']['Fees'].sum()
+            #st.metric("💵 Cash Collected", f"₹{cash_total:,.0f}")
+
+    #with col3:
+        #if 'Fees' in edited_df.columns and 'Payment Mode' in edited_df.columns:
+            #online_total = edited_df[edited_df['Payment Mode'].str.lower() == 'online']['Fees'].sum()
+            #st.metric("💳 Online Collected", f"₹{online_total:,.0f}")
+
+    #with col4:
+        #if 'Fees' in edited_df.columns:
+            #total_fees = edited_df['Fees'].sum()
+            #st.metric("💰 Total Collected", f"₹{total_fees:,.0f}")
+
+    # Action buttons
+    st.divider()
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+
+    with col1:
+        if st.button("💾 Save All Changes", type="primary", key="save_all_changes_all_visitors_btn",
+                     use_container_width=True):
+            # Validate data
+            empty_names = edited_df[edited_df['Name'].str.strip() == ''].index
+            if len(empty_names) > 0:
+                st.error(f"⚠️ Please fill in names for all rows")
+            else:
+                with st.spinner("Updating all records..."):
+                    success_count = 0
+                    error_count = 0
+
+                    # Remove Select and Date columns for saving
+                    save_df = edited_df.drop(['Select', 'Date'], axis=1, errors='ignore')
+
+                    # Convert back to original column names
+                    reverse_mapping = {v: k for k, v in column_mapping.items()}
+                    save_df = save_df.rename(columns=reverse_mapping)
+
+                    # Update each record
+                    for idx, (_, row) in enumerate(save_df.iterrows()):
+                        if idx < len(original_ids):
+                            record_id = original_ids[idx]
+                            record_data = row.to_dict()
+
+                            if update_visitor_record(record_id, record_data):
+                                success_count += 1
+                            else:
+                                error_count += 1
+
+                    if success_count > 0:
+                        st.success(f"✅ Successfully updated {success_count} record(s)!")
+                    if error_count > 0:
+                        st.error(f"❌ Failed to update {error_count} record(s)")
+
+                    if success_count > 0:
+                        time.sleep(1)
+                        st.rerun()
+
+    with col2:
+        # Check if any rows are selected for deletion
+        selected_rows = edited_df[edited_df['Select'] == True]
+        if len(selected_rows) > 0:
+            if st.button(f"🗑️ Delete Selected ({len(selected_rows)})", key="delete_selected_all_btn",
+                         use_container_width=True):
+                # Get IDs of selected rows
+                selected_indices = selected_rows.index.tolist()
+                ids_to_delete = [original_ids[idx] for idx in selected_indices if idx < len(original_ids)]
+
+                # Get names for confirmation
+                names_to_delete = selected_rows['Name'].tolist()
+
+                st.session_state.bulk_delete_confirmation = {
+                    'ids': ids_to_delete,
+                    'names': names_to_delete,
+                    'count': len(ids_to_delete)
+                }
+                st.rerun()
+
+    with col3:
+        # Download as CSV
+        download_df = edited_df.drop('Select', axis=1, errors='ignore')
+        csv = download_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download CSV",
+            data=csv,
+            file_name=f"all_visitors_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+            key="download_all_visitors_csv",
+            use_container_width=True
+        )
+
+    with col4:
+        if st.button("🏠 Back to Dashboard", key="back_to_dashboard_from_all", use_container_width=True):
+            st.session_state.show_visitors_list = False
+            st.session_state.view_all_dates = False
+            st.session_state.show_add_form = False
+            st.session_state.show_payment_summary = False
+            st.rerun()
+
+    # Handle bulk delete confirmation (same as in show_members_list_for_date)
+    if st.session_state.get('bulk_delete_confirmation'):
+        delete_info = st.session_state.bulk_delete_confirmation
+
+        st.markdown(f"""
+        <div style="background-color: #fff3cd; padding: 20px; border-radius: 10px; border-left: 5px solid #ffc107; margin: 20px 0;">
+            <h4 style="color: #856404; margin: 0 0 10px 0;">⚠️ Confirm Deletion</h4>
+            <p style="color: #856404; margin: 0;">Are you sure you want to delete <strong>{delete_info['count']}</strong> visitor(s)?</p>
+            <p style="color: #856404; margin: 10px 0 0 0;"><strong>Visitors to be deleted:</strong></p>
+            <ul style="color: #856404;">
+                {''.join([f'<li>{name}</li>' for name in delete_info['names'][:5]])}
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col1, col2, col3 = st.columns([1, 1, 2])
+
+        with col1:
+            if st.button("❌ Yes, Delete All", type="primary", key="confirm_bulk_delete_all_final"):
+                with st.spinner(f"Deleting {delete_info['count']} visitor(s)..."):
+                    success_count = 0
+                    error_count = 0
+
+                    for record_id in delete_info['ids']:
+                        result = delete_member(record_id)
+                        if result:
+                            success_count += 1
+                        else:
+                            error_count += 1
+
+                    if success_count > 0:
+                        st.success(f"✅ Successfully deleted {success_count} visitor(s)!")
+                    if error_count > 0:
+                        st.error(f"❌ Failed to delete {error_count} visitor(s)")
+
+                    st.session_state.bulk_delete_confirmation = None
+                    time.sleep(1)
+                    # Reload all data after deletion
+                    load_all_visitors_data()
+                    st.rerun()
+
+        with col2:
+            if st.button("↩️ Cancel", key="cancel_bulk_delete_all_final"):
+                st.session_state.bulk_delete_confirmation = None
+                st.rerun()
+
 def show_dashboard():
     """Main dashboard function - shows calendar and date-based operations"""
     st.title("🏢 BNI Brilliance Visitors Register")
@@ -1310,10 +1595,9 @@ def show_dashboard():
                 display_payment_summary(selected_date, weekly_amount)
 
 
-
             elif st.session_state.get("show_visitors_list"):
-                st.header(f"👥 Visitors List for {selected_date.strftime('%B %d, %Y')}")
-                show_members_list_for_date(selected_date)
+                st.header("ALL Visitors List")
+                show_all_members_list()
 
     except Exception as e:
         st.error("❌ An error occurred in the main application")
