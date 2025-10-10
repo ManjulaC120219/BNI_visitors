@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 import os, re
@@ -18,72 +17,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["FLAGS_use_mkldnn"] = "0"
 
-COLUMNS = ['Name', 'Company Name', 'Invited by', 'Fees', 'Payment Mode', 'Date', 'Note']
-
-
-def extract_date_from_top_corner(image_path):
-    """Extract handwritten date from top-right corner - AGGRESSIVE"""
-    try:
-        img = cv2.imread(image_path)
-        height, width = img.shape[:2]
-
-        # Try multiple regions to find the date
-        regions = [
-            (0, int(height * 0.15), int(width * 0.6), width),  # Top-right 40%
-            (0, int(height * 0.20), int(width * 0.5), width),  # Top-right 50%
-            (0, int(height * 0.10), int(width * 0.7), width),  # Top-right 30%
-        ]
-
-        all_text_found = []
-
-        for y1, y2, x1, x2 in regions:
-            try:
-                corner = img[y1:y2, x1:x2]
-
-                # Save temporary crop
-                temp_path = tempfile.mktemp(suffix='.jpg')
-                cv2.imwrite(temp_path, corner)
-
-                # OCR with handwriting settings
-                ocr = PaddleOCR(
-                    use_angle_cls=False,
-                    lang='en',
-                    use_gpu=False,
-                    show_log=False,
-                    det_db_thresh=0.05,
-                    det_db_box_thresh=0.1,
-                    det_db_unclip_ratio=4.0
-                )
-
-                result = ocr.ocr(temp_path, cls=False)
-                os.remove(temp_path)
-
-                if result and result[0]:
-                    for line in result[0]:
-                        if line and len(line) >= 2:
-                            text = line[1][0].strip()
-                            all_text_found.append(text)
-                            print(f"DEBUG: Found text in corner: '{text}'")
-            except:
-                continue
-
-        # Look for date patterns in all found text
-        for text in all_text_found:
-            # Match various date formats
-            if re.search(r'\d{1,2}[-/\s]*(?:sep|sept|oct|nov|dec|jan|feb|mar|apr|may|jun|jul|aug)', text.lower()):
-                print(f"DEBUG: Detected date from corner: '{text}'")
-                return text
-            if is_date_format(text):
-                print(f"DEBUG: Detected date from corner: '{text}'")
-                return text
-
-        print("DEBUG: No date found in corner")
-        return None
-    except Exception as e:
-        print(f"DEBUG: Date extraction from corner failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+COLUMNS = ['Name', 'Company Name', 'Invited by', 'Fees', 'Payment Mode', 'Note']
 
 
 def cluster_by_rows(items, y_tolerance=30):
@@ -115,7 +49,7 @@ def detect_column_positions(header_items, all_items):
         'invited': None,
         'fees': None,
         'payment': None,
-        'date': None
+
     }
 
     # Try to find header positions
@@ -131,8 +65,6 @@ def detect_column_positions(header_items, all_items):
             columns['fees'] = item['x']
         elif 'payment' in text_lower or 'mode' in text_lower:
             columns['payment'] = item['x']
-        elif 'date' in text_lower:
-            columns['date'] = item['x']
 
     # If header not found, estimate from data distribution
     if not any(columns.values()):
@@ -155,7 +87,7 @@ def detect_column_positions(header_items, all_items):
                 columns['invited'] = col_positions[2]
                 columns['fees'] = col_positions[3]
                 columns['payment'] = col_positions[4]
-                columns['date'] = col_positions[5]
+
 
     print(f"DEBUG: Detected column positions: {columns}")
     return columns
@@ -502,18 +434,6 @@ def is_payment_mode(text):
     return any(mode == text or mode in text for mode in modes)
 
 
-def is_date_format(text):
-    """Detect date patterns"""
-    patterns = [
-        r'\d{1,2}[-/]\d{1,2}[-/]\d{2,4}',
-        r'\d{1,2}\s*[-]\s*[A-Za-z]{3,9}',
-        r'[A-Za-z]{3,9}\s*[-]\s*\d{1,2}',
-        r'\d{1,2}[-/][A-Za-z]{3,9}[-/]\d{2,4}',
-        r'\d{1,2}\s*[A-Za-z]{3,9}\s*\d{2,4}'
-    ]
-    return any(re.search(pattern, text.strip()) for pattern in patterns)
-
-
 def is_signature_or_check(text):
     """Identify signature or checkmark symbols"""
     text = text.strip()
@@ -570,8 +490,6 @@ def extract_data_from_image_v2(image_path):
 
     try:
         # Extract date from top-right corner first
-        corner_date = extract_date_from_top_corner(image_path)
-        print(f"DEBUG: Extracted corner date: {corner_date}")
 
         # Get image dimensions for signature exclusion
         img_width, img_height = get_image_dimensions(image_path)
@@ -648,7 +566,7 @@ def extract_data_from_image_v2(image_path):
                 ocr_items.append(item)
 
                 text_lower = text.lower()
-                if any(h in text_lower for h in ['name', 'company', 'invited', 'fees', 'payment', 'date', 'mode']):
+                if any(h in text_lower for h in ['name', 'company', 'invited', 'fees', 'payment','notes']):
                     header_items.append(item)
 
         print(f"DEBUG: Total OCR items: {len(ocr_items)}")
@@ -699,7 +617,6 @@ def extract_data_from_image_v2(image_path):
                 'invited_by': '',
                 'fees': '',
                 'payment_mode': '',
-                'date': corner_date if corner_date else '',  # Use corner date
                 'note': ''
             }
 
@@ -709,8 +626,7 @@ def extract_data_from_image_v2(image_path):
                 'invited': [],
                 'fees': [],
                 'payment': [],
-                'date': [],
-                'other': []
+                'notes': []
             }
 
             for item in row_items:
@@ -732,10 +648,6 @@ def extract_data_from_image_v2(image_path):
                         column_data['name'].append(name_part)
                     continue
 
-                # Check for date (but corner date takes priority)
-                if is_date_format(text) and not corner_date:
-                    column_data['date'].append(text)
-                    continue
 
                 # Check for payment mode
                 if is_payment_mode(text):
@@ -755,10 +667,7 @@ def extract_data_from_image_v2(image_path):
                             column_data['name'].append(text)
                         elif not column_data['invited']:
                             column_data['invited'].append(text)
-                        else:
-                            column_data['other'].append(text)
-                    else:
-                        column_data['other'].append(text)
+
 
             # Populate record
             # In your row processing loop, replace the name extraction with:
@@ -768,9 +677,8 @@ def extract_data_from_image_v2(image_path):
             record['fees'] = column_data['fees'][0] if column_data['fees'] else ''
             record['payment_mode'] = column_data['payment'][0] if column_data['payment'] else ''
             # Only override with row date if no corner date
-            if not record['date'] and column_data['date']:
-                record['date'] = column_data['date'][0]
-            record['note'] = ' '.join(column_data['other']) if column_data['other'] else ''
+
+            #record['note'] = ' '.join(column_data['other']) if column_data['other'] else ''
 
             # Fallback name extraction
             if not record['name'] and record['fees']:
@@ -798,7 +706,7 @@ def extract_data_from_image_v2(image_path):
                 records.append(record)
                 print(f"  ✓ Extracted: Name='{record['name']}', Company='{record['company_name']}', "
                       f"Invited='{record['invited_by']}', Fees='{record['fees']}', "
-                      f"Payment='{record['payment_mode']}', Date='{record['date']}'")
+                      f"Payment='{record['payment_mode']}'")
             else:
                 if row_text:
                     record['note'] = ' '.join(row_text)
@@ -809,7 +717,7 @@ def extract_data_from_image_v2(image_path):
 
         if records:
             df_data = [[r['name'], r['company_name'], r['invited_by'],
-                        r['fees'], r['payment_mode'], r['date'], r['note']]
+                        r['fees'], r['payment_mode'], r['note']]
                        for r in records]
             df = pd.DataFrame(df_data, columns=COLUMNS)
         else:
@@ -827,9 +735,6 @@ def extract_data_from_image_v2(image_path):
 def test_extraction(image_path):
     """Test the improved extraction"""
     try:
-        print("=" * 80)
-        print("IMPROVED OCR EXTRACTION (With Date from Corner)")
-        print("=" * 80)
 
         df = extract_data_from_image_v2(image_path)
 
